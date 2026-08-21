@@ -2,7 +2,8 @@
 以及“滚动日历”“完整月历”“任务页”“纪念日页”四种形态。
 """
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPoint, QRectF, Qt, Signal
+from PySide6.QtGui import QBrush, QPainter
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from calendar_todo.ui import theme
 from calendar_todo.ui.memorial_view import MemorialView
 from calendar_todo.ui.month_view import MonthView
 from calendar_todo.ui.strip_view import StripView
@@ -25,11 +27,7 @@ class _TitleBar(QFrame):
     def __init__(self):
         super().__init__()
         self.setFixedHeight(38)
-        self.setStyleSheet(
-            "background:#2D6CDF;"
-            "border-top-left-radius:10px;"
-            "border-top-right-radius:10px;"
-        )
+        self.setStyleSheet(theme.TITLE_BAR)
         self._drag_offset = None
 
     def mousePressEvent(self, event):
@@ -67,9 +65,8 @@ class CalendarPanel(QWidget):
             | Qt.WindowType.Tool
         )
         self.setFixedWidth(380)
-        self.setStyleSheet(
-            "background:white; border:1px solid #d0d5dd; border-radius:10px;"
-        )
+        # 背景交给 paintEvent 画：渐变 + 噪点 + 植物线稿 + 圆角描边
+        self._background = theme.make_panel_background(380, 500)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -82,28 +79,16 @@ class CalendarPanel(QWidget):
         bar_layout.setSpacing(8)
 
         title = QLabel("日历 ToDo")
-        title.setStyleSheet("color:white; font-weight:bold; font-size:14px;")
+        title.setStyleSheet(theme.TITLE_TEXT)
 
         # 待办/纪念日模式切换按钮
         self.mode_button = QPushButton("纪念日模式")
-        self.mode_button.setStyleSheet(
-            "QPushButton{background:rgba(255,255,255,0.2); color:white; border:none;"
-            " border-radius:5px; padding:4px 8px; font-size:12px;}"
-            "QPushButton:hover{background:rgba(255,255,255,0.35);}"
-        )
+        self.mode_button.setStyleSheet(theme.GHOST_BUTTON)
 
         self.toggle_button = QPushButton("展开月历")
-        self.toggle_button.setStyleSheet(
-            "QPushButton{background:#3D7BFF; color:white; border:none;"
-            " border-radius:5px; padding:4px 10px;}"
-            "QPushButton:hover{background:#4D88FF;}"
-        )
+        self.toggle_button.setStyleSheet(theme.PRIMARY_BUTTON)
         self.close_button = QPushButton("✕")
-        self.close_button.setStyleSheet(
-            "QPushButton{background:transparent; color:white; border:none;"
-            " font-size:16px; padding:2px 8px;}"
-            "QPushButton:hover{background:#C0392B; border-radius:5px;}"
-        )
+        self.close_button.setStyleSheet(theme.GHOST_BUTTON)
 
         bar_layout.addWidget(title)
         bar_layout.addStretch(1)
@@ -141,6 +126,17 @@ class CalendarPanel(QWidget):
         self._mode_before_detail = self.MODE_STRIP
         self._mode = self.MODE_STRIP
         self._apply_mode()
+
+    def paintEvent(self, event):
+        """画面板：点阵纸 + 硬边投影 + 手绘抖动边框。"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(self.rect()).adjusted(1, 1, -4, -4)
+        theme.draw_hard_shadow(painter, rect, QPoint(3, 4), theme.SHADOW, 14)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(self._background))
+        painter.drawRoundedRect(rect, 14, 14)
+        theme.draw_sketch_rect(painter, rect, theme.INK, wobble=1.5, pen_width=1.5)
 
     # ---------- 只读状态 ----------
 

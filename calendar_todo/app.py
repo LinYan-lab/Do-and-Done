@@ -6,10 +6,11 @@
 import sys
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QColor, QGuiApplication, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from calendar_todo.data.database import TodoRepository, default_db_path
+from calendar_todo.ui import theme
 from calendar_todo.ui.calendar_panel import CalendarPanel
 from calendar_todo.ui.floating_button import FloatingButton
 
@@ -71,14 +72,15 @@ class CalendarApp:
 
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QColor("#2D6CDF"))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(0, 0, 64, 64, 16, 16)
+        # 手绘纸片：纸面 + 墨色描边 + 手写“日”
+        painter.setBrush(QColor(theme.PAPER))
+        painter.setPen(QPen(QColor(theme.INK), 2))
+        painter.drawRoundedRect(2, 2, 60, 60, 12, 12)
 
-        painter.setPen(QColor("white"))
+        painter.setPen(QColor(theme.INK))
         font = painter.font()
         font.setBold(True)
-        font.setPixelSize(30)
+        font.setPixelSize(28)
         painter.setFont(font)
         painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "日")
         painter.end()
@@ -145,6 +147,8 @@ def main() -> int:
     # 应用名用于数据/配置目录，保持英文；窗口里的中文标题不受影响
     qt_app.setApplicationName("CalendarTodo")
     qt_app.setOrganizationName("CalendarTodo")
+    # 全局使用手写字体（系统没有时 Qt 会自动回退到无衬线）
+    qt_app.setFont(QFont(theme.FONT_HAND, 10))
     # 关掉所有窗口时程序不应退出，因为系统托盘还在
     qt_app.setQuitOnLastWindowClosed(False)
 

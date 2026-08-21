@@ -12,6 +12,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
+from calendar_todo.ui import theme
+
 
 class TaskDialog(QDialog):
     def __init__(self, default_date: date, parent=None):
@@ -42,6 +44,9 @@ class TaskDialog(QDialog):
         form.addRow("开始日期", self.start_edit)
         form.addRow("结束日期", self.end_edit)
         form.addRow(buttons)
+        self.setStyleSheet(
+            theme.INPUT_FIELD + theme.DIALOG_BUTTONS
+        )
 
     def _validate_and_accept(self):
         title = self.title_edit.text().strip()

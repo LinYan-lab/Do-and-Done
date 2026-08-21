@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
 )
 from zhdate import ZhDate
 
+from calendar_todo.ui import theme
+
 
 class MemorialDialog(QDialog):
     def __init__(self, parent=None):
@@ -45,6 +47,12 @@ class MemorialDialog(QDialog):
         form.addRow("月份", self.month_spin)
         form.addRow("日期", self.day_spin)
         form.addRow(buttons)
+        self.setStyleSheet(
+            theme.INPUT_FIELD
+            + "QCheckBox{color:#3B4252;}"
+            "QCheckBox::indicator{width:16px; height:16px;}"
+            + theme.DIALOG_BUTTONS
+        )
 
     def _validate_and_accept(self):
         name = self.name_edit.text().strip()

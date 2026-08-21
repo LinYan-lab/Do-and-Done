@@ -13,13 +13,8 @@ from PySide6.QtWidgets import (
 )
 
 from calendar_todo.logic import date_utils
+from calendar_todo.ui import theme
 from calendar_todo.ui.memorial_dialog import MemorialDialog
-
-_NAV_BUTTON_STYLE = (
-    "QPushButton{background:#EEF1F5; border:none; border-radius:7px;"
-    " font-size:13px; color:#333333;}"
-    "QPushButton:hover{background:#DFE5EC;}"
-)
 
 
 class MemorialView(QWidget):
@@ -42,21 +37,17 @@ class MemorialView(QWidget):
 
         self.back_button = QPushButton("←")
         self.back_button.setFixedSize(28, 28)
-        self.back_button.setStyleSheet(_NAV_BUTTON_STYLE)
+        self.back_button.setStyleSheet(theme.NAV_BUTTON)
         self.back_button.clicked.connect(self.back_requested)
 
         self.title_label = QLabel()
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.title_label.setStyleSheet(
-            "font-size:14px; font-weight:bold; color:#333333;"
+            f"font-size:14px; font-weight:bold; color:{theme.INK};"
         )
 
         add_button = QPushButton("＋添加")
-        add_button.setStyleSheet(
-            "QPushButton{background:#3D7BFF; color:white; border:none;"
-            " border-radius:6px; padding:4px 10px; font-size:13px;}"
-            "QPushButton:hover{background:#4D88FF;}"
-        )
+        add_button.setStyleSheet(theme.PRIMARY_BUTTON)
         add_button.clicked.connect(self._on_add)
 
         header.addWidget(self.back_button)
@@ -64,7 +55,9 @@ class MemorialView(QWidget):
         header.addWidget(add_button)
 
         self.summary_label = QLabel()
-        self.summary_label.setStyleSheet("color:#888888; font-size:12px;")
+        self.summary_label.setStyleSheet(
+            f"color:{theme.INK_SOFT}; font-size:12px;"
+        )
 
         # ---- 列表 ----
         self.list_area = QScrollArea()
@@ -110,27 +103,30 @@ class MemorialView(QWidget):
 
     def _make_row(self, memorial) -> QWidget:
         row = QWidget()
-        row.setStyleSheet("background:#F5F7FA; border-radius:8px;")
+        row.setStyleSheet(
+            f"background:{theme.STICKY_PINK};"
+            f" border:2px dashed {theme.PENCIL}; border-radius:8px;"
+        )
+        theme.hard_shadow(row)
         layout = QHBoxLayout(row)
         layout.setContentsMargins(10, 6, 6, 6)
         layout.setSpacing(8)
 
         name = QLabel(memorial["name"])
-        name.setStyleSheet("background:transparent; color:#1F2937; font-size:14px;")
+        name.setStyleSheet(
+            f"background:transparent; color:{theme.INK}; font-size:14px;"
+        )
 
         badge = QLabel("农历" if memorial["is_lunar"] else "公历")
         badge.setStyleSheet(
-            "background:#E8F0FE; color:#2D6CDF; border-radius:4px;"
+            f"background:{theme.PAPER}; color:{theme.INK_SOFT};"
+            f" border:1px solid {theme.PENCIL}; border-radius:4px;"
             " padding:1px 6px; font-size:11px;"
         )
 
         delete_button = QPushButton("✕")
         delete_button.setFixedSize(24, 24)
-        delete_button.setStyleSheet(
-            "QPushButton{background:transparent; color:#999999; border:none;"
-            " font-size:13px;}"
-            "QPushButton:hover{background:#E74C3C; color:white; border-radius:6px;}"
-        )
+        delete_button.setStyleSheet(theme.DANGER_ICON)
 
         layout.addWidget(name, 1)
         layout.addWidget(badge)

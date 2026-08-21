@@ -2,11 +2,18 @@
 
 from datetime import date
 
-# 四种完成率颜色（已确认的需求规则）
-COLOR_BLUE = "#2D6CDF"    # x = 100%
-COLOR_GREEN = "#34A853"   # 60% <= x < 100%
-COLOR_YELLOW = "#F6C244"  # 20% <= x < 60%
-COLOR_RED = "#E74C3C"     # 0% <= x < 20%
+# 四种完成率颜色（语义不变，色相调整为亲自然色板）
+COLOR_BLUE = "#6FA8C9"    # 天光蓝：x = 100%
+COLOR_GREEN = "#7FAF7B"   # 叶绿：60% <= x < 100%
+COLOR_YELLOW = "#E2B568"  # 暖琥珀：20% <= x < 60%
+COLOR_RED = "#C97B63"     # 陶土红：0% <= x < 20%
+
+
+def text_color_for(background_color) -> str:
+    """某个底色上应该用什么颜色的文字（黄色底用深字，其余用白字）。"""
+    if background_color == COLOR_YELLOW:
+        return "#3B3A36"
+    return "white"
 
 
 def rate_color(done: int, total: int):

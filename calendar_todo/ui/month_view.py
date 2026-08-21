@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from calendar_todo.logic import date_utils
 from calendar_todo.logic import completion
 from calendar_todo.logic import holidays
+from calendar_todo.ui import theme
 from calendar_todo.ui.day_cell import DayCell
 
 
@@ -44,15 +45,11 @@ class MonthView(QWidget):
         self.title_label = QLabel()
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.title_label.setStyleSheet(
-            "font-size:15px; font-weight:bold; color:#333333;"
+            f"font-size:15px; font-weight:bold; color:{theme.INK};"
         )
 
         today_btn = QPushButton("今天")
-        today_btn.setStyleSheet(
-            "QPushButton{background:#EEF1F5; color:#333333; border:none;"
-            " border-radius:6px; padding:4px 10px; font-size:13px;}"
-            "QPushButton:hover{background:#DFE5EC;}"
-        )
+        today_btn.setStyleSheet(theme.LIGHT_BUTTON)
         today_btn.clicked.connect(self.go_today)
 
         header.addWidget(prev_btn)
@@ -66,7 +63,7 @@ class MonthView(QWidget):
         for col, name in enumerate(date_utils.WEEKDAY_NAMES):
             label = QLabel(name)
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            label.setStyleSheet("color:#888888; font-size:12px;")
+            label.setStyleSheet(f"color:{theme.INK_SOFT}; font-size:12px;")
             self._grid.addWidget(label, 0, col)
 
         root.addLayout(header)
@@ -175,10 +172,6 @@ class MonthView(QWidget):
     @staticmethod
     def _make_nav_button(text: str) -> QPushButton:
         btn = QPushButton(text)
-        btn.setFixedSize(28, 28)
-        btn.setStyleSheet(
-            "QPushButton{background:#EEF1F5; border:none; border-radius:7px;"
-            " font-size:13px; color:#333333;}"
-            "QPushButton:hover{background:#DFE5EC;}"
-        )
+        btn.setFixedSize(30, 30)
+        btn.setStyleSheet(theme.NAV_BUTTON)
         return btn
