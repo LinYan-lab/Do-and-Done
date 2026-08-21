@@ -5,7 +5,7 @@
 """
 
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QSettings, Qt
@@ -26,8 +26,12 @@ def main():
     # 把设置写到 /tmp，避免测试污染真实配置
     QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, "/tmp")
 
+    # 测试用临时数据库，避免污染真实数据
+    db_path = Path("/tmp") / "calendar_smoke_test.db"
+    db_path.unlink(missing_ok=True)
+
     app = QApplication(sys.argv)
-    calendar = CalendarApp(app)
+    calendar = CalendarApp(app, db_path=db_path)
     calendar.button.show()
     app.processEvents()
     assert calendar.button.isVisible(), "悬浮按钮应该可见"
@@ -162,7 +166,32 @@ def main():
     app.processEvents()
     assert date_utils.today() in strip._days, "滚到很远后，今天应仍在列表里"
 
-    print("冒烟测试通过：窗口联动、月历、滚动条、无限滚动、日期工具都正常。")
+    # ---- 数据层：跨多日任务 ----
+    repo = calendar.repo
+    today = date_utils.today()
+    task_id = repo.add_task("读三章书", today, today + timedelta(days=2))
+    assert repo.stats_for_date(today) == (0, 1), "跨 3 天任务，每天应各有 1 条"
+    assert repo.stats_for_date(today + timedelta(days=1)) == (0, 1), "中间那天也有"
+    assert repo.stats_for_date(today + timedelta(days=3)) == (0, 0), "范围外不应有任务"
+
+    repo.set_done(task_id, today, True)
+    assert repo.stats_for_date(today) == (1, 1), "勾选后当天应为 1/1"
+    assert repo.stats_for_date(today + timedelta(days=1)) == (0, 1), "不影响其他天"
+
+    repo.delete_task(task_id)
+    assert repo.stats_for_date(today) == (0, 0), "删除任务后统计应归零"
+
+    # ---- 任务视图：点日期进入任务页，返回后回到滚动日历 ----
+    repo.add_task("买牛奶", today, today)
+    calendar.panel.show_task(today)
+    app.processEvents()
+    assert calendar.panel.current_mode == calendar.panel.MODE_TASK, "应进入任务页"
+    assert len(calendar.panel.task_view._rows) == 1, "任务页应显示 1 条任务"
+    calendar.panel.task_view.back_button.click()
+    app.processEvents()
+    assert calendar.panel.current_mode == calendar.panel.MODE_STRIP, "返回后应回到滚动日历"
+
+    print("冒烟测试通过：窗口联动、月历、滚动条、无限滚动、数据层、任务页都正常。")
     calendar.quit()
 
 

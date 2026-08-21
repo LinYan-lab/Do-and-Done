@@ -1,4 +1,4 @@
-"""日历面板：从悬浮按钮展开，可在“滚动日历”和“完整月历”两种形态间切换。"""
+"""日历面板：从悬浮按钮展开，可在“滚动日历”“完整月历”“任务页”间切换。"""
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from calendar_todo.ui.month_view import MonthView
 from calendar_todo.ui.strip_view import StripView
+from calendar_todo.ui.task_view import TaskView
 
 
 class _TitleBar(QFrame):
@@ -46,14 +47,15 @@ class _TitleBar(QFrame):
 
 
 class CalendarPanel(QWidget):
-    """无边框置顶面板，内容是一个可切换两种形态的堆叠视图。"""
+    """无边框置顶面板：滚动日历、完整月历、任务页三种形态。"""
 
     MODE_STRIP = "strip"    # 滚动日历（一小段时间）
     MODE_MONTH = "month"    # 完整月历（一个月）
+    MODE_TASK = "task"      # 任务页（某一天的待办）
 
     date_selected = Signal(object)  # 用户在任一视图里选中某天时转发出去
 
-    def __init__(self):
+    def __init__(self, repo):
         super().__init__(None)
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -96,12 +98,14 @@ class CalendarPanel(QWidget):
         bar_layout.addWidget(self.toggle_button)
         bar_layout.addWidget(self.close_button)
 
-        # ---- 内容区：滚动日历条 + 完整月历 ----
+        # ---- 内容区：滚动日历条 + 完整月历 + 任务页 ----
         self.stack = QStackedWidget()
         self.strip_view = StripView()
         self.month_view = MonthView()
+        self.task_view = TaskView(repo)
         self.stack.addWidget(self.strip_view)
         self.stack.addWidget(self.month_view)
+        self.stack.addWidget(self.task_view)
 
         root.addWidget(self.title_bar)
         root.addWidget(self.stack)
@@ -109,16 +113,21 @@ class CalendarPanel(QWidget):
         # ---- 信号连接 ----
         self.toggle_button.clicked.connect(self.toggle_mode)
         self.close_button.clicked.connect(self.hide)
-        self.strip_view.date_selected.connect(self.date_selected)
-        self.month_view.date_selected.connect(self.date_selected)
+        self.strip_view.date_selected.connect(self.on_date_selected)
+        self.month_view.date_selected.connect(self.on_date_selected)
+        self.task_view.back_requested.connect(self._return_from_task)
 
+        # 进入任务页之前处在哪种形态，返回时就回到那种形态
+        self._mode_before_task = self.MODE_STRIP
         self._mode = self.MODE_STRIP
         self._apply_mode()
 
     @property
     def current_mode(self) -> str:
-        """当前形态：MODE_STRIP 或 MODE_MONTH。"""
+        """当前形态：MODE_STRIP / MODE_MONTH / MODE_TASK。"""
         return self._mode
+
+    # ---------- 形态切换 ----------
 
     def show_strip(self):
         """以“滚动日历”形态显示面板。"""
@@ -127,9 +136,32 @@ class CalendarPanel(QWidget):
         self.show()
 
     def toggle_mode(self):
-        """在滚动日历和完整月历之间切换。"""
+        """标题栏按钮：滚动日历 <-> 完整月历；任务页里则返回之前的形态。"""
+        if self._mode == self.MODE_TASK:
+            self._mode = self._mode_before_task
+            self._apply_mode()
+            return
         self._mode = self.MODE_MONTH if self._mode == self.MODE_STRIP else self.MODE_STRIP
         self._apply_mode()
+
+    def show_task(self, day):
+        """进入任务页，展示某一天的待办。"""
+        if self._mode != self.MODE_TASK:
+            self._mode_before_task = self._mode
+        self._mode = self.MODE_TASK
+        self.task_view.set_date(day)
+        self._apply_mode()
+
+    def _return_from_task(self):
+        """任务页点“返回”或标题栏按钮，回到进入前的形态。"""
+        self._mode = self._mode_before_task
+        self._apply_mode()
+
+    def on_date_selected(self, day):
+        """用户在日历上点选某一天：进入任务页。"""
+        if day is not None:
+            self.show_task(day)
+            self.date_selected.emit(day)
 
     def _apply_mode(self):
         """根据当前形态切换显示页和面板高度。"""
@@ -137,6 +169,10 @@ class CalendarPanel(QWidget):
             self.stack.setCurrentIndex(1)
             self.setFixedHeight(430)
             self.toggle_button.setText("收起为滚动")
+        elif self._mode == self.MODE_TASK:
+            self.stack.setCurrentIndex(2)
+            self.setFixedHeight(400)
+            self.toggle_button.setText("返回日历")
         else:
             self.stack.setCurrentIndex(0)
             self.setFixedHeight(180)

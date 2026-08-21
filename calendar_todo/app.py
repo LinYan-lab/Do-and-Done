@@ -9,6 +9,7 @@ from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QColor, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
+from calendar_todo.data.database import TodoRepository, default_db_path
 from calendar_todo.ui.calendar_panel import CalendarPanel
 from calendar_todo.ui.floating_button import FloatingButton
 
@@ -16,13 +17,16 @@ from calendar_todo.ui.floating_button import FloatingButton
 class CalendarApp:
     """整个程序的“总指挥”：持有按钮、面板和托盘，处理它们之间的联动。"""
 
-    def __init__(self, qt_app: QApplication):
+    def __init__(self, qt_app: QApplication, db_path=None):
         self.qt_app = qt_app
         self.settings = QSettings("CalendarTodo", "CalendarTodo")
 
+        # 数据库：默认存在 ~/.local/share/CalendarTodo/ 下
+        self.repo = TodoRepository(db_path or default_db_path())
+
         # 两个界面部件
         self.button = FloatingButton()
-        self.panel = CalendarPanel()
+        self.panel = CalendarPanel(self.repo)
 
         # 系统托盘（有的桌面环境没有托盘，不影响使用）
         self.tray = None
@@ -131,13 +135,15 @@ class CalendarApp:
         """退出前记住按钮位置，然后关闭程序。"""
         self.settings.setValue("button_x", self.button.x())
         self.settings.setValue("button_y", self.button.y())
+        self.repo.close()
         self.qt_app.quit()
 
 
 def main() -> int:
     """程序入口：创建应用、组装部件、进入事件循环。"""
     qt_app = QApplication(sys.argv)
-    qt_app.setApplicationName("日历 ToDo")
+    # 应用名用于数据/配置目录，保持英文；窗口里的中文标题不受影响
+    qt_app.setApplicationName("CalendarTodo")
     qt_app.setOrganizationName("CalendarTodo")
     # 关掉所有窗口时程序不应退出，因为系统托盘还在
     qt_app.setQuitOnLastWindowClosed(False)
