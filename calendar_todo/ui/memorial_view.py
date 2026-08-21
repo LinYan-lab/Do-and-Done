@@ -1,8 +1,7 @@
-"""任务视图：展示某一天的待办，支持勾选完成、添加任务、删除任务。"""
+"""纪念日视图：展示某一天会遇到的所有纪念日，支持添加和删除。"""
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -14,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from calendar_todo.logic import date_utils
-from calendar_todo.ui.task_dialog import TaskDialog
+from calendar_todo.ui.memorial_dialog import MemorialDialog
 
 _NAV_BUTTON_STYLE = (
     "QPushButton{background:#EEF1F5; border:none; border-radius:7px;"
@@ -23,9 +22,9 @@ _NAV_BUTTON_STYLE = (
 )
 
 
-class TaskView(QWidget):
+class MemorialView(QWidget):
     back_requested = Signal()  # 点“返回”时发出，让面板切回日历
-    data_changed = Signal()    # 任务增删改后发出，让日历刷新颜色
+    data_changed = Signal()    # 纪念日增删后发出，让日历刷新小字
 
     def __init__(self, repo):
         super().__init__()
@@ -67,7 +66,7 @@ class TaskView(QWidget):
         self.summary_label = QLabel()
         self.summary_label.setStyleSheet("color:#888888; font-size:12px;")
 
-        # ---- 任务列表（可滚动） ----
+        # ---- 列表 ----
         self.list_area = QScrollArea()
         self.list_area.setWidgetResizable(True)
         self.list_area.setFrameShape(QFrame.Shape.NoFrame)
@@ -75,7 +74,7 @@ class TaskView(QWidget):
         self.list_layout = QVBoxLayout(self.list_container)
         self.list_layout.setContentsMargins(0, 0, 0, 0)
         self.list_layout.setSpacing(6)
-        self.list_layout.addStretch(1)  # 底部留白，任务从上往下排
+        self.list_layout.addStretch(1)
         self.list_area.setWidget(self.list_container)
 
         root.addLayout(header)
@@ -84,19 +83,13 @@ class TaskView(QWidget):
 
         self.set_date(date_utils.today())
 
-    # ---------- 对外操作 ----------
-
     def set_date(self, day):
-        """切换到某一天，重新加载这一天的任务。"""
+        """切换到某一天，重新加载这一天的纪念日。"""
         self._day = day
-        self.title_label.setText(f"{day.month}月{day.day}日 待办")
+        self.title_label.setText(f"{day.month}月{day.day}日 纪念日")
         self._reload()
 
-    # ---------- 内部实现 ----------
-
     def _reload(self):
-        """清空列表，从数据库重新读取当天的任务。"""
-        # 第一项是底部留白的 stretch，从第 0 项开始清
         while self.list_layout.count() > 1:
             item = self.list_layout.takeAt(0)
             widget = item.widget()
@@ -104,31 +97,33 @@ class TaskView(QWidget):
                 widget.deleteLater()
         self._rows = []
 
-        tasks = self._repo.tasks_on(self._day)
-        for task in tasks:
-            row = self._make_row(task)
+        memorials = self._repo.memorial_rows_on(self._day)
+        for memorial in memorials:
+            row = self._make_row(memorial)
             self.list_layout.insertWidget(self.list_layout.count() - 1, row)
             self._rows.append(row)
-        self._update_summary()
 
-    def _update_summary(self):
-        done, total = self._repo.stats_for_date(self._day)
-        if total == 0:
-            self.summary_label.setText("今日没有到期任务")
+        if memorials:
+            self.summary_label.setText(f"共 {len(memorials)} 个纪念日")
         else:
-            self.summary_label.setText(f"今日到期：已完成 {done}/{total}")
+            self.summary_label.setText("这一天没有自定义纪念日")
 
-    def _make_row(self, task) -> QWidget:
+    def _make_row(self, memorial) -> QWidget:
         row = QWidget()
         row.setStyleSheet("background:#F5F7FA; border-radius:8px;")
         layout = QHBoxLayout(row)
         layout.setContentsMargins(10, 6, 6, 6)
         layout.setSpacing(8)
 
-        checkbox = QCheckBox()
-        checkbox.setChecked(bool(task["done"]))
-        title = QLabel(task["title"])
-        title.setStyleSheet("background:transparent; color:#1F2937; font-size:14px;")
+        name = QLabel(memorial["name"])
+        name.setStyleSheet("background:transparent; color:#1F2937; font-size:14px;")
+
+        badge = QLabel("农历" if memorial["is_lunar"] else "公历")
+        badge.setStyleSheet(
+            "background:#E8F0FE; color:#2D6CDF; border-radius:4px;"
+            " padding:1px 6px; font-size:11px;"
+        )
+
         delete_button = QPushButton("✕")
         delete_button.setFixedSize(24, 24)
         delete_button.setStyleSheet(
@@ -137,33 +132,24 @@ class TaskView(QWidget):
             "QPushButton:hover{background:#E74C3C; color:white; border-radius:6px;}"
         )
 
-        layout.addWidget(checkbox)
-        layout.addWidget(title, 1)
+        layout.addWidget(name, 1)
+        layout.addWidget(badge)
         layout.addWidget(delete_button)
 
-        # 先 setChecked 再连接信号，避免加载时就误触发一次
-        checkbox.toggled.connect(
-            lambda checked, task_id=task["id"]: self._on_toggled(task_id, checked)
-        )
         delete_button.clicked.connect(
-            lambda _=False, task_id=task["id"]: self._on_delete(task_id)
+            lambda _=False, memorial_id=memorial["id"]: self._on_delete(memorial_id)
         )
         return row
 
-    def _on_toggled(self, task_id: int, checked: bool):
-        self._repo.set_done(task_id, self._day, checked)
-        self._update_summary()
-        self.data_changed.emit()
-
-    def _on_delete(self, task_id: int):
-        self._repo.delete_task(task_id)
-        self._reload()
-        self.data_changed.emit()
-
     def _on_add(self):
-        dialog = TaskDialog(self._day, self)
+        dialog = MemorialDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            title, start, end = dialog.values()
-            self._repo.add_task(title, start, end)
+            name, month, day, is_lunar = dialog.values()
+            self._repo.add_memorial(name, month, day, is_lunar)
             self._reload()
             self.data_changed.emit()
+
+    def _on_delete(self, memorial_id: int):
+        self._repo.delete_memorial(memorial_id)
+        self._reload()
+        self.data_changed.emit()

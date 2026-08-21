@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
 )
 
 from calendar_todo.logic import date_utils
+from calendar_todo.logic import completion
+from calendar_todo.logic import holidays
 from calendar_todo.ui.day_cell import DayCell
 
 CELL_WIDTH = 52          # 一个格子多宽
@@ -29,8 +31,9 @@ MAX_DAYS = 120           # 最多保留多少天，超出就把远处的清掉�
 class StripView(QWidget):
     date_selected = Signal(object)
 
-    def __init__(self):
+    def __init__(self, repo):
         super().__init__()
+        self._repo = repo
         today = date_utils.today()
         # 30 天从“今天所在周一往前推 11 天”开始，保证今天在中间偏左，
         # 左右两边都有可滚动的余地
@@ -39,12 +42,13 @@ class StripView(QWidget):
             for i in range(DAY_COUNT)
         ]
         self._selected = None
+        self._memorial_mode = False
 
-        # 拖动状态：按下位置、按下时的滚动值、是否已经进入拖动
+        # 拖动状态：按下位置（视口坐标）、按下时的滚动值、是否已经进入拖动
         self._press_pos = None
-        self._press_cell = None
         self._press_value = 0
         self._dragged = False
+        self._mouse_grabbed = False
         # 滚轮小刻度累加（有的环境一格只发 ±1，直接取整会变成 0）
         self._wheel_accum = 0.0
         # 首次显示时才把今天滚到最左边（那时滚动范围才算得出来）
@@ -154,20 +158,18 @@ class StripView(QWidget):
             self._on_wheel(event)
             return True
 
-        # 日期格子上的鼠标事件：在这里实现拖动和点击
-        if isinstance(obj, DayCell):
-            return self._handle_cell_mouse(obj, event)
+        # 在日期格子上按下：换算成视口坐标，并把鼠标抓给视口
+        if etype == QEvent.Type.MouseButtonPress and isinstance(obj, DayCell):
+            if event.button() == Qt.MouseButton.LeftButton:
+                self._start_drag(obj, event.position().toPoint())
+                return True
 
         if obj is not self.scroll_area.viewport():
             return super().eventFilter(obj, event)
 
         if etype == QEvent.Type.MouseButtonPress:
             if event.button() == Qt.MouseButton.LeftButton:
-                # 用局部坐标而不是全局坐标：Wayland 下全局坐标经常是 (0,0)
-                self._press_pos = event.position().toPoint()
-                self._press_value = self.scroll_area.horizontalScrollBar().value()
-                self._dragged = False
-                # 吞掉按下事件：先记下状态，松开时再决定是“点击”还是“拖动”
+                self._start_drag(obj, event.position().toPoint())
                 return True
 
         elif etype == QEvent.Type.MouseMove:
@@ -188,52 +190,44 @@ class StripView(QWidget):
                 press = self._press_pos
                 self._press_pos = None
                 self._dragged = False
+                if self._mouse_grabbed:
+                    self._mouse_grabbed = False
+                    self.scroll_area.viewport().releaseMouse()
                 # 没拖动才算“点击”，点中哪个格子就选中哪天
                 if not was_dragged and press is not None:
-                    cell = obj.childAt(event.position().toPoint())
-                    if isinstance(cell, DayCell):
+                    cell = self._cell_at(event.position().toPoint())
+                    if cell is not None:
                         self._on_cell_clicked(cell.day)
                 return True
 
         return super().eventFilter(obj, event)
 
-    def _handle_cell_mouse(self, cell, event):
-        """处理日期格子上的按下/移动/松开：区分点击和拖动。"""
-        etype = event.type()
+    def _cell_at(self, pos):
+        """找到视口坐标 pos 处的日期格子。
 
-        if etype == QEvent.Type.MouseButtonPress:
-            if event.button() == Qt.MouseButton.LeftButton:
-                # 局部坐标：Wayland 下全局坐标不可靠
-                self._press_pos = event.position().toPoint()
-                self._press_cell = cell
-                self._press_value = self.scroll_area.horizontalScrollBar().value()
-                self._dragged = False
-                return True
+        childAt 可能返回格子里的数字/圆点等小部件，
+        需要沿着父级往上找，直到找到 DayCell。
+        """
+        widget = self.scroll_area.viewport().childAt(pos)
+        while widget is not None:
+            if isinstance(widget, DayCell):
+                return widget
+            widget = widget.parentWidget()
+        return None
 
-        elif etype == QEvent.Type.MouseMove:
-            if self._press_pos is not None and event.buttons() & Qt.MouseButton.LeftButton:
-                delta_x = self._press_pos.x() - event.position().toPoint().x()
-                if not self._dragged and abs(delta_x) > 5:
-                    self._dragged = True
-                if self._dragged:
-                    hbar = self.scroll_area.horizontalScrollBar()
-                    self._ensure_range()
-                    hbar.setValue(self._press_value + delta_x)
-                    return True
+    def _start_drag(self, widget, local_pos):
+        """按下时记录状态，并把鼠标抓给视口。
 
-        elif etype == QEvent.Type.MouseButtonRelease:
-            if event.button() == Qt.MouseButton.LeftButton:
-                was_dragged = self._dragged
-                pressed_cell = self._press_cell
-                self._press_pos = None
-                self._press_cell = None
-                self._dragged = False
-                # 没拖动才算“点击”，点中哪个格子就选中哪天
-                if not was_dragged and pressed_cell is not None:
-                    self._on_cell_clicked(pressed_cell.day)
-                return True
-
-        return super().eventFilter(cell, event)
+        如果不抓取，内容滚动后光标下的格子会换人，
+        每个格子的坐标基准不同，拖动就会乱跳。
+        抓给视口后，整个拖动期间所有事件都发给视口，坐标始终一致。
+        """
+        viewport = self.scroll_area.viewport()
+        self._press_pos = widget.mapTo(viewport, local_pos)
+        self._press_value = self.scroll_area.horizontalScrollBar().value()
+        self._dragged = False
+        self._mouse_grabbed = True
+        viewport.grabMouse()
 
     def _on_wheel(self, event):
         """滚轮上滚看更早的日期，下滚看更晚的日期。"""
@@ -271,6 +265,35 @@ class StripView(QWidget):
             self.row_layout.addWidget(self._make_cell(day, today))
         # 明确告诉滚动区域内容行有多宽，否则滚动范围算不出来，滚不动
         self._update_row_width()
+        self._apply_colors()
+        self.refresh_memorials()
+
+    def refresh_colors(self):
+        """任务数据变化后，重新读取完成率并更新所有格子颜色。"""
+        self._apply_colors()
+
+    def set_mode(self, memorial_mode: bool):
+        """切换待办/纪念日模式：控制格子上是否显示节日和纪念日小字。"""
+        self._memorial_mode = memorial_mode
+        self.refresh_memorials()
+
+    def refresh_memorials(self):
+        """重新读取节日/纪念日，更新每个格子下方的小字。"""
+        if self._memorial_mode:
+            holidays_map = holidays.holidays_for_range(self._days[0], self._days[-1])
+            memorials_map = self._repo.memorials_for_range(self._days[0], self._days[-1])
+        else:
+            holidays_map = {}
+            memorials_map = {}
+        for i in range(self.row_layout.count()):
+            cell = self.row_layout.itemAt(i).widget()
+            if isinstance(cell, DayCell):
+                names = list(
+                    dict.fromkeys(
+                        memorials_map.get(cell.day, []) + holidays_map.get(cell.day, [])
+                    )
+                )
+                cell.set_sub_text(names[0] if names else "")
 
     def _shift_scroll(self, pixels: int):
         # 先检查是否需要补天：如果已经顶到边缘，setValue 不会生效，
@@ -319,6 +342,8 @@ class StripView(QWidget):
             self.row_layout.addWidget(self._make_cell(day, today))
         self._update_row_width()
         self._prune_left(today)
+        self._apply_colors()
+        self.refresh_memorials()
         self._extending = False
 
     def _extend_left(self):
@@ -340,6 +365,8 @@ class StripView(QWidget):
         self._press_value += EXTEND_DAYS * CELL_STEP
 
         self._prune_right(today)
+        self._apply_colors()
+        self.refresh_memorials()
         self._extending = False
 
     def _prune_left(self, today):
@@ -384,6 +411,15 @@ class StripView(QWidget):
         cell.setFixedSize(CELL_WIDTH, CELL_HEIGHT)
         cell.installEventFilter(self)
         return cell
+
+    def _apply_colors(self):
+        """一次性查整条的数据，给每个格子涂完成率颜色。"""
+        stats = self._repo.stats_for_range(self._days[0], self._days[-1])
+        for i in range(self.row_layout.count()):
+            cell = self.row_layout.itemAt(i).widget()
+            if isinstance(cell, DayCell):
+                done, total = stats.get(cell.day, (0, 0))
+                cell.set_completion_color(completion.day_color(done, total, cell.day))
 
     def _on_cell_clicked(self, day):
         """点选/取消选中某一天，并同步所有格子的选中样式。"""

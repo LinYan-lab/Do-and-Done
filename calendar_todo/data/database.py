@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths
+from zhdate import ZhDate
 
 
 def default_db_path() -> Path:
@@ -53,9 +54,78 @@ class TodoRepository:
                 PRIMARY KEY (task_id, date),
                 FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS memorials (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                month INTEGER NOT NULL,
+                day INTEGER NOT NULL,
+                is_lunar INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+            );
             """
         )
         self._conn.commit()
+
+    # ---------- 纪念日 ----------
+
+    def add_memorial(self, name: str, month: int, day: int, is_lunar: bool = False) -> int:
+        """添加纪念日。纪念日每年重复：is_lunar=True 表示按农历。"""
+        cursor = self._conn.execute(
+            "INSERT INTO memorials (name, month, day, is_lunar) VALUES (?, ?, ?, ?)",
+            (name, month, day, 1 if is_lunar else 0),
+        )
+        self._conn.commit()
+        return cursor.lastrowid
+
+    def delete_memorial(self, memorial_id: int):
+        self._conn.execute("DELETE FROM memorials WHERE id = ?", (memorial_id,))
+        self._conn.commit()
+
+    def memorials_on(self, day: date) -> list[dict]:
+        """某一天会遇到的纪念日（农历纪念日会换算到对应公历日）。"""
+        return self.memorials_for_range(day, day).get(day, [])
+
+    def memorial_rows_on(self, day: date) -> list[dict]:
+        """某一天会遇到的纪念日明细（含 id，供展示和删除使用）。"""
+        rows = self._conn.execute(
+            "SELECT id, name, month, day, is_lunar FROM memorials ORDER BY id"
+        ).fetchall()
+        result = []
+        for row in rows:
+            if self._memorial_matches(dict(row), day):
+                result.append(dict(row))
+        return result
+
+    def memorials_for_range(self, start: date, end: date) -> dict[date, list[str]]:
+        """一段日期范围内每天会遇到的纪念日：{日期: [名称, ...]}。"""
+        rows = self._conn.execute(
+            "SELECT id, name, month, day, is_lunar FROM memorials ORDER BY id"
+        ).fetchall()
+        result: dict[date, list[str]] = {}
+        day = start
+        while day <= end:
+            for row in rows:
+                if self._memorial_matches(dict(row), day):
+                    result.setdefault(day, []).append(row["name"])
+            day += timedelta(days=1)
+        return result
+
+    @staticmethod
+    def _memorial_matches(memorial: dict, day: date) -> bool:
+        """判断某个纪念日是否落在 day 这一天。"""
+        if memorial["is_lunar"]:
+            # 农历纪念日：把当年这个农历日期换算成公历再比较
+            try:
+                solar = (
+                    ZhDate(day.year, memorial["month"], memorial["day"])
+                    .to_datetime()
+                    .date()
+                )
+            except (ValueError, TypeError):
+                return False
+            return solar == day
+        return memorial["month"] == day.month and memorial["day"] == day.day
 
     def add_task(self, title: str, start_date: date, end_date: date) -> int:
         """添加任务。跨几天，就在 task_daily 里为每一天插一行。"""
@@ -102,10 +172,34 @@ class TodoRepository:
         self._conn.commit()
 
     def stats_for_date(self, day: date) -> tuple[int, int]:
-        """某一天的完成统计：(已完成数量, 总数量)。"""
+        """某一天“到期”的任务完成统计：(已完成数量, 总数量)。
+
+        只统计结束日期就是这一天的任务：跨多日任务只算它的最后一天，
+        中间的天数只是展示进度，不影响当天的完成率。
+        """
         row = self._conn.execute(
-            "SELECT COUNT(*) AS total, COALESCE(SUM(done), 0) AS done "
-            "FROM task_daily WHERE date = ?",
+            "SELECT COUNT(*) AS total, COALESCE(SUM(d.done), 0) AS done "
+            "FROM task_daily d "
+            "JOIN tasks t ON d.task_id = t.id "
+            "WHERE d.date = ? AND t.end_date = d.date",
             (day.isoformat(),),
         ).fetchone()
         return row["done"], row["total"]
+
+    def stats_for_range(self, start: date, end: date) -> dict[date, tuple[int, int]]:
+        """一段日期范围内每天“到期”任务的完成统计：{日期: (已完成, 总数量)}。
+
+        一次查完整个月/整条滚动条的颜色数据，避免每个格子单独查一次数据库。
+        """
+        rows = self._conn.execute(
+            "SELECT d.date, COUNT(*) AS total, COALESCE(SUM(d.done), 0) AS done "
+            "FROM task_daily d "
+            "JOIN tasks t ON d.task_id = t.id "
+            "WHERE d.date BETWEEN ? AND ? AND t.end_date = d.date "
+            "GROUP BY d.date",
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
+        return {
+            date.fromisoformat(row["date"]): (row["done"], row["total"])
+            for row in rows
+        }

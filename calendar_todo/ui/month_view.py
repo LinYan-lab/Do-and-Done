@@ -11,18 +11,22 @@ from PySide6.QtWidgets import (
 )
 
 from calendar_todo.logic import date_utils
+from calendar_todo.logic import completion
+from calendar_todo.logic import holidays
 from calendar_todo.ui.day_cell import DayCell
 
 
 class MonthView(QWidget):
     date_selected = Signal(object)  # 选中/取消选中某天时发出（None 表示取消）
 
-    def __init__(self):
+    def __init__(self, repo):
         super().__init__()
+        self._repo = repo
         self._year = date_utils.today().year
         self._month = date_utils.today().month
         self._selected = None
         self._cells: dict = {}
+        self._memorial_mode = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 8, 10, 10)
@@ -104,17 +108,62 @@ class MonthView(QWidget):
         self._cells = {}
         self.title_label.setText(date_utils.month_title(self._year, self._month))
         today = date_utils.today()
+        grid = date_utils.month_grid(self._year, self._month)
+        stats = self._repo.stats_for_range(grid[0], grid[-1])
 
-        for i, day in enumerate(date_utils.month_grid(self._year, self._month)):
+        for i, day in enumerate(grid):
             row, col = divmod(i, 7)
             cell = DayCell(
                 day,
                 is_today=(day == today),
                 in_current_month=(day.month == self._month),
             )
+            cell.set_completion_color(self._color_for(day, stats))
             cell.clicked.connect(self._on_cell_clicked)
             self._grid.addWidget(cell, row + 1, col)
             self._cells[day] = cell
+        self.refresh_memorials()
+
+    def goto(self, year: int, month: int):
+        """直接跳到某年某月（测试和外部跳转用）。"""
+        self._year = year
+        self._month = month
+        self._selected = None
+        self._rebuild()
+        self.date_selected.emit(None)
+
+    def set_mode(self, memorial_mode: bool):
+        """切换待办/纪念日模式：控制格子上是否显示节日和纪念日小字。"""
+        self._memorial_mode = memorial_mode
+        self.refresh_memorials()
+
+    def refresh_memorials(self):
+        """重新读取节日/纪念日，更新每个格子下方的小字。"""
+        grid = date_utils.month_grid(self._year, self._month)
+        if self._memorial_mode:
+            holidays_map = holidays.holidays_for_range(grid[0], grid[-1])
+            memorials_map = self._repo.memorials_for_range(grid[0], grid[-1])
+        else:
+            holidays_map = {}
+            memorials_map = {}
+        for day, cell in self._cells.items():
+            # 格子很小，只显示一个名字：自定义纪念日优先，其次节日
+            names = list(
+                dict.fromkeys(memorials_map.get(day, []) + holidays_map.get(day, []))
+            )
+            cell.set_sub_text(names[0] if names else "")
+
+    def refresh_colors(self):
+        """任务数据变化后，重新读取完成率并更新所有格子颜色。"""
+        grid = date_utils.month_grid(self._year, self._month)
+        stats = self._repo.stats_for_range(grid[0], grid[-1])
+        for day, cell in self._cells.items():
+            cell.set_completion_color(self._color_for(day, stats))
+
+    def _color_for(self, day, stats):
+        """查某一天的统计，交给逻辑层算出该染的颜色（可能为 None）。"""
+        done, total = stats.get(day, (0, 0))
+        return completion.day_color(done, total, day)
 
     def _on_cell_clicked(self, day):
         """点选/取消选中某一天，并同步所有格子的选中样式。"""
