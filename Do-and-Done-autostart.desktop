@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=日历 ToDo
+Name[en]=Calendar ToDo
+Comment=登录桌面后自动启动日历与待办
+Exec=/Data/Do_Done/run.sh
+Icon=/Data/Do_Done/assets/icon.png
+Path=/Data/Do_Done
+Terminal=false
+Categories=Office;
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=3

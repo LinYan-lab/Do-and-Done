@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=日历 ToDo
+Name[en]=Calendar ToDo
+Comment=手绘风格的日历与待办管理
+Exec=/Data/Do_Done/run.sh
+Icon=/Data/Do_Done/assets/icon.png
+Path=/Data/Do_Done
+Terminal=false
+Categories=Office;
+StartupNotify=true
